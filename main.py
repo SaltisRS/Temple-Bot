@@ -4,6 +4,7 @@ import requests
 from discord.ext import commands
 import re
 import os
+import datetime
 
 config = configparser.ConfigParser()
 
@@ -38,6 +39,7 @@ def create_config():
     config.add_section("DISCORD")
     config.set("DISCORD", "TOKEN", TOKEN)
     config.set("DISCORD", "ROLES", ROLES)
+    config.set("DISCORD", "error_message", "Sorry, you do not have the required elevation to use this command.")
     config.add_section("WEBSITE")
     config.set("WEBSITE", "API_KEY", API_KEY)
     config.set("WEBSITE", "GROUP_ID", GROUP_ID)
@@ -60,40 +62,60 @@ OVERVIEW_URL = "https://templeosrs.com/groups/overview.php?id=" + GROUP_ID
 MEMBER_URL = "https://templeosrs.com/groups/members.php?id=" + GROUP_ID
 regex = r"^[A-Za-z0-9 ]{0,12}(,[A-Za-z0-9 ]{0,12})*$"
 
-#Initiate Bot
-bot = commands.Bot(command_prefix='!', intents=discord.Intents.all(), case_insensitive=True)
-
-@bot.event
-async def on_ready():
-    print(f'{bot.user} has connected to Discord!')
-
-async def check_roles(ctx):
-    member = ctx.message.author
-    user_roles = [role.name for role in member.roles]
-    # Check if the user has the Administrator permission in the guild
-    #if member.guild_permissions.administrator:
-       # return True
-    # Check if the user has any of the required roles
-    roles = min(user_roles, ELEVATED, key=len)
-    for role in roles:
-        if role in user_roles:
-            return True
-    await ctx.send('Sorry, you do not have the required elevation to use this command.')
-    return False
-
-
-async def config_refresh():
+def config_refresh():
     config.read("config.ini")
     for section, entries in config.items():
         print(f"Refreshing Config Section: {section}")
         for entry, value in entries.items():
             # Update the value of the entry in config
             globals()[entry] = value
+
+def debug(Input):
+    if not os.path.exists("debug_output.md"):
+        open("debug_output.txt", "w").close()
+        with open("debug_output.txt", "a") as debug_file:
+            timestamp = str(datetime.datetime.now())
+            debug_file.write(f"{timestamp}: {Input}\n")
+
+class PermissionHandler:
+    def __init__(self, bot):
+        self.bot = bot
+        self.error_message = config['DISCORD']['error_message']
+
+    def check_roles(self, ctx):
+        config = configparser.ConfigParser()
+        config.read('config.ini')
+        self.required_roles = config['DISCORD']['roles'].split(',')
+
+        if ctx.author.id == self.bot.owner_id:
+            return True
+
+        roles = [role.name.lower().strip() for role in ctx.author.roles]
+        required_roles = [role.lower().strip() for role in self.required_roles]
+        if any(role in roles for role in required_roles) or ctx.author.guild_permissions.administrator:
+            return True
+        return False
+
+
+    def has_roles(self):
+        async def predicate(ctx):
+            if not self.check_roles(ctx):
+                await ctx.send(self.error_message)
+                return False
+            return True
+        return commands.check(predicate)
+
+#Initiate Bot
+bot = commands.Bot(command_prefix='!', intents=discord.Intents.all(), case_insensitive=True)
+permission_handler = PermissionHandler(bot)
+
+@bot.event
+async def on_ready():
+    print(f'{bot.user} has connected to Discord!')
         
 @bot.command(aliases=["ar", "adr"])
-@commands.check(check_roles)
+@permission_handler.has_roles()
 async def addrole(ctx, arg):
-    await config_refresh()
     config.read("config.ini")
     if len(arg) > 1:
         role = arg
@@ -119,10 +141,8 @@ async def addrole(ctx, arg):
     else:
         await ctx.send("Invalid command. Use the format !addrole role.")
 
-
 @bot.command(aliases=["gi"])
 async def groupinfo(ctx):
-    await config_refresh()
     # Make a request to the API
     response = requests.get(API_ENDPOINT + f'group_info.php?id={GROUP_ID}', headers={'Authorization': f'Bearer {API_KEY}'})
 
@@ -178,7 +198,6 @@ async def groupinfo(ctx):
 
 @bot.command(aliases=["ach", "recents", "recent", "latestpogs"])
 async def achievements(ctx, num:int=5):
-    await config_refresh()
     # Make a request to the API
     response = requests.get(API_ENDPOINT + 'group_achievements.php', params={'id': GROUP_ID})
     if num < 1 or num > 20:
@@ -209,7 +228,6 @@ async def achievements(ctx, num:int=5):
 
 @bot.command(aliases=["leaders", "staff", "admins", "cunts", "cl"])
 async def clanleaders(ctx):
-    await config_refresh()
     # Make a request to the API
     response = requests.get(API_ENDPOINT + f'group_info.php?id={GROUP_ID}', headers={'Authorization': f'Bearer {API_KEY}'})
 
@@ -230,10 +248,8 @@ async def clanleaders(ctx):
         await ctx.send('An error occurred while trying to get the data. Please try again later.')
 
 @bot.command(aliases=["rm", "del", "delete", "remove", "deletemember", "removemember"])
-@commands.check(check_roles)
+@permission_handler.has_roles()
 async def delmem(ctx, *, player_names):
-    await config_refresh()
-
     if not re.match(regex, player_names):
         await ctx.send("Error: player names must contain only letters, digits, and spaces, and have a maximum of 12 characters.")
         return
@@ -252,7 +268,7 @@ async def delmem(ctx, *, player_names):
         await ctx.send('An error occurred while trying to remove the players. Please try again later.')
 
 @bot.command(aliases=["addm", "add", "addmember"])
-@commands.check(check_roles)
+@permission_handler.has_roles()
 async def addmem(ctx, *, player_names):
     if not re.match(regex, player_names):
         await ctx.send("Error: player names must contain only letters, digits, and spaces, and have a maximum of 12 characters.")
