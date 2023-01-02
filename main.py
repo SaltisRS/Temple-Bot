@@ -1,54 +1,11 @@
-import configparser
-import discord
-import requests
-from discord.ext import commands
-import re
-import os
-import datetime
+from common_imports import *
+from PermissionHandler import PermissionHandler as PM
+import ConfigHandler
 
 config = configparser.ConfigParser()
-
-def check_config():
-    # Check if the config.ini file exists
-    if not os.path.exists("config.ini"):
-        # Create the config.ini file if it does not exist
-        create_config()
-        return
-
-    # Read in the config.ini file
-    config.read("config.ini")
-
-    # Iterate through the sections and entries in the config.ini file
-    for section, entries in config.items():
-        for entry, value in entries.items():
-            # Check if the value is empty or 0
-            if not value or value == "0":
-                # Prompt the user for the missing value
-                value = input(f"Enter a value for {entry} in section {section}: ")
-                # Update the value in the config.ini file
-                config.set(section, entry, value)
-
-def create_config():
-    # Prompt the user for the values for each section and entry
-    TOKEN = input("Enter a value for TOKEN in section DISCORD: (bot token)")
-    ROLES = input("Enter a name for ROLES in section DISCORD: (case sensitive)")
-    API_KEY = input("Enter a value for API_KEY in section WEBSITE: (edit code)")
-    GROUP_ID = input("Enter a value for GROUP_ID in section WEBSITE: ")
-
-    # Add the values to the config.ini file
-    config.add_section("DISCORD")
-    config.set("DISCORD", "TOKEN", TOKEN)
-    config.set("DISCORD", "ROLES", ROLES)
-    config.set("DISCORD", "error_message", "Sorry, you do not have the required elevation to use this command.")
-    config.add_section("WEBSITE")
-    config.set("WEBSITE", "API_KEY", API_KEY)
-    config.set("WEBSITE", "GROUP_ID", GROUP_ID)
-
-    # Save the config.ini file
-    with open("config.ini", "w") as config_file:
-        config.write(config_file)
-
-check_config()
+PermissionHandler = PM
+config_handler = ConfigHandler.ConfigChk()
+config_handler.check_config()
 
 # Read config and set links / regex format
 config.read('config.ini')
@@ -62,48 +19,12 @@ OVERVIEW_URL = "https://templeosrs.com/groups/overview.php?id=" + GROUP_ID
 MEMBER_URL = "https://templeosrs.com/groups/members.php?id=" + GROUP_ID
 regex = r"^[A-Za-z0-9 ]{0,12}(,[A-Za-z0-9 ]{0,12})*$"
 
-def config_refresh():
-    config.read("config.ini")
-    for section, entries in config.items():
-        print(f"Refreshing Config Section: {section}")
-        for entry, value in entries.items():
-            # Update the value of the entry in config
-            globals()[entry] = value
-
 def debug(Input):
     if not os.path.exists("debug_output.md"):
         open("debug_output.txt", "w").close()
         with open("debug_output.txt", "a") as debug_file:
             timestamp = str(datetime.datetime.now())
             debug_file.write(f"{timestamp}: {Input}\n")
-
-class PermissionHandler:
-    def __init__(self, bot):
-        self.bot = bot
-        self.error_message = config['DISCORD']['error_message']
-
-    def check_roles(self, ctx):
-        config = configparser.ConfigParser()
-        config.read('config.ini')
-        self.required_roles = config['DISCORD']['roles'].split(',')
-
-        if ctx.author.id == self.bot.owner_id:
-            return True
-
-        roles = [role.name.lower().strip() for role in ctx.author.roles]
-        required_roles = [role.lower().strip() for role in self.required_roles]
-        if any(role in roles for role in required_roles) or ctx.author.guild_permissions.administrator:
-            return True
-        return False
-
-
-    def has_roles(self):
-        async def predicate(ctx):
-            if not self.check_roles(ctx):
-                await ctx.send(self.error_message)
-                return False
-            return True
-        return commands.check(predicate)
 
 #Initiate Bot
 bot = commands.Bot(command_prefix='!', intents=discord.Intents.all(), case_insensitive=True)
@@ -226,7 +147,7 @@ async def achievements(ctx, num:int=5):
         # Send an error message if the request was unsuccessful
         await ctx.send('An error occurred while trying to get the data. Please try again later.')
 
-@bot.command(aliases=["leaders", "staff", "admins", "cunts", "cl"])
+@bot.command(aliases=["leaders", "staff", "admins", "cl"])
 async def clanleaders(ctx):
     # Make a request to the API
     response = requests.get(API_ENDPOINT + f'group_info.php?id={GROUP_ID}', headers={'Authorization': f'Bearer {API_KEY}'})
